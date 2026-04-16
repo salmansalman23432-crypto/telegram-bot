@@ -4,9 +4,10 @@ import json
 import os
 import telebot
 
-# TOKEN = os.getenv("TELEGRAM_TOKEN")
-TOKEN = os.getenv("8680094497:AAGbHCJ44TNijfMY2NUf18QadB9nnT2xLFY")
-CHAT_ID = os.getenv("1800198608")
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+# TOKEN = os.getenv("8680094497:AAGbHCJ44TNijfMY2NUf18QadB9nnT2xLFY")
+# CHAT_ID = os.getenv("1800198608")
+CHAT_ID = os.getenv("CHAT_ID")
 
 bot = telebot.TeleBot(TOKEN)
 
