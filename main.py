@@ -3,18 +3,22 @@ import json
 import threading
 import telebot
 from flask import Flask
+from telebot import types
 
 # =========================
-# Telegram Bot Setup
+# إعدادات
 # =========================
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
+if not TOKEN:
+    raise Exception("Missing TELEGRAM_TOKEN")
+
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 
 # =========================
-# Flask Web Server (IMPORTANT for Render)
+# Flask (حل مشكلة Render Port)
 # =========================
 
 app = Flask(__name__)
@@ -28,7 +32,7 @@ def run_web():
     app.run(host="0.0.0.0", port=port)
 
 # =========================
-# Data Storage
+# Data
 # =========================
 
 def load():
@@ -43,22 +47,84 @@ def save(data):
         json.dump(data, f, indent=2)
 
 # =========================
+# UI (Buttons)
+# =========================
+
+def main_menu():
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+
+    kb.row("📊 السوق")
+    kb.row("💱 العملات", "🪙 الذهب", "🥈 الفضة")
+
+    return kb
+
+# =========================
 # Start message
 # =========================
 
 def start_message():
     try:
-        bot.send_message(CHAT_ID, "🚀 V5 Web Service Bot is LIVE")
+        bot.send_message(CHAT_ID, "🚀 V5.1 System Online")
     except:
         pass
 
 # =========================
-# Commands
+# Start
 # =========================
 
 @bot.message_handler(commands=['start'])
 def start(msg):
-    bot.reply_to(msg, "✅ Bot is running on Web Service")
+    bot.send_message(
+        msg.chat.id,
+        "👋 أهلاً بك في نظام السوق الليبي",
+        reply_markup=main_menu()
+    )
+
+# =========================
+# Market display
+# =========================
+
+@bot.message_handler(func=lambda m: m.text == "📊 السوق")
+def show_market(msg):
+    data = load()
+
+    text = "📊 <b>السوق الليبي</b>\n\n"
+
+    icons = {
+        "gold": "🪙 الذهب",
+        "silver": "🥈 الفضة",
+        "currency": "💱 العملات"
+    }
+
+    for cat, values in data.items():
+        text += f"{icons.get(cat, cat)}:\n"
+
+        for k, v in values.items():
+            text += f" - {k}: <b>{v}</b>\n"
+
+        text += "\n"
+
+    bot.send_message(msg.chat.id, text)
+
+# =========================
+# Menus (UI placeholders)
+# =========================
+
+@bot.message_handler(func=lambda m: m.text == "💱 العملات")
+def currency_menu(msg):
+    bot.send_message(msg.chat.id, "💱 اختر عملة للتحديث (لاحقًا تطوير تحويل ذكي)")
+
+@bot.message_handler(func=lambda m: m.text == "🪙 الذهب")
+def gold_menu(msg):
+    bot.send_message(msg.chat.id, "🪙 اختر نوع الذهب (new / used / scrap / cast)")
+
+@bot.message_handler(func=lambda m: m.text == "🥈 الفضة")
+def silver_menu(msg):
+    bot.send_message(msg.chat.id, "🥈 اختر نوع الفضة (new / used)")
+
+# =========================
+# Set command
+# =========================
 
 @bot.message_handler(commands=['set'])
 def set_price(msg):
@@ -87,30 +153,16 @@ def set_price(msg):
     except:
         bot.reply_to(msg, "❌ usage: /set gold scrap 4700")
 
-@bot.message_handler(commands=['market'])
-def market(msg):
-    data = load()
-
-    text = "📊 <b>Market Status</b>\n\n"
-
-    for cat, values in data.items():
-        text += f"🔹 {cat.upper()}:\n"
-        for k, v in values.items():
-            text += f" - {k}: <b>{v}</b>\n"
-        text += "\n"
-
-    bot.reply_to(msg, text)
-
 # =========================
-# Safety fallback
+# fallback
 # =========================
 
 @bot.message_handler(func=lambda m: True)
 def fallback(msg):
-    bot.reply_to(msg, "Use /start /market /set")
+    bot.reply_to(msg, "استخدم الأزرار أو /market")
 
 # =========================
-# Telegram polling loop (stable)
+# Run bot safely
 # =========================
 
 def run_bot():
@@ -122,14 +174,12 @@ def run_bot():
             print("Bot error:", e)
 
 # =========================
-# START ALL
+# START EVERYTHING
 # =========================
 
 if __name__ == "__main__":
     start_message()
 
-    # تشغيل السيرفر (هذا يحل مشكلة Render Port scan)
     threading.Thread(target=run_web, daemon=True).start()
 
-    # تشغيل البوت
     run_bot()
