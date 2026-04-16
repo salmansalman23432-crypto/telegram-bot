@@ -6,7 +6,7 @@ from flask import Flask
 from telebot import types
 
 # =========================
-# إعدادات
+# إعدادات أساسية
 # =========================
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -18,7 +18,7 @@ if not TOKEN:
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 
 # =========================
-# Flask (حل مشكلة Render Port)
+# Web Service (Render Fix)
 # =========================
 
 app = Flask(__name__)
@@ -32,7 +32,7 @@ def run_web():
     app.run(host="0.0.0.0", port=port)
 
 # =========================
-# Data
+# بيانات
 # =========================
 
 def load():
@@ -47,24 +47,22 @@ def save(data):
         json.dump(data, f, indent=2)
 
 # =========================
-# UI (Buttons)
+# UI
 # =========================
 
-def main_menu():
+def menu():
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-
     kb.row("📊 السوق")
     kb.row("💱 العملات", "🪙 الذهب", "🥈 الفضة")
-
     return kb
 
 # =========================
-# Start message
+# بدء التشغيل
 # =========================
 
 def start_message():
     try:
-        bot.send_message(CHAT_ID, "🚀 V5.1 System Online")
+        bot.send_message(CHAT_ID, "🚀 V6 System Online")
     except:
         pass
 
@@ -74,21 +72,17 @@ def start_message():
 
 @bot.message_handler(commands=['start'])
 def start(msg):
-    bot.send_message(
-        msg.chat.id,
-        "👋 أهلاً بك في نظام السوق الليبي",
-        reply_markup=main_menu()
-    )
+    bot.send_message(msg.chat.id, "👋 أهلاً بك", reply_markup=menu())
 
 # =========================
-# Market display
+# السوق
 # =========================
 
 @bot.message_handler(func=lambda m: m.text == "📊 السوق")
-def show_market(msg):
+def market(msg):
     data = load()
 
-    text = "📊 <b>السوق الليبي</b>\n\n"
+    text = "📊 <b>السوق</b>\n\n"
 
     icons = {
         "gold": "🪙 الذهب",
@@ -98,71 +92,54 @@ def show_market(msg):
 
     for cat, values in data.items():
         text += f"{icons.get(cat, cat)}:\n"
-
         for k, v in values.items():
             text += f" - {k}: <b>{v}</b>\n"
-
         text += "\n"
 
     bot.send_message(msg.chat.id, text)
 
 # =========================
-# Menus (UI placeholders)
-# =========================
-
-@bot.message_handler(func=lambda m: m.text == "💱 العملات")
-def currency_menu(msg):
-    bot.send_message(msg.chat.id, "💱 اختر عملة للتحديث (لاحقًا تطوير تحويل ذكي)")
-
-@bot.message_handler(func=lambda m: m.text == "🪙 الذهب")
-def gold_menu(msg):
-    bot.send_message(msg.chat.id, "🪙 اختر نوع الذهب (new / used / scrap / cast)")
-
-@bot.message_handler(func=lambda m: m.text == "🥈 الفضة")
-def silver_menu(msg):
-    bot.send_message(msg.chat.id, "🥈 اختر نوع الفضة (new / used)")
-
-# =========================
-# Set command
+# /set
 # =========================
 
 @bot.message_handler(commands=['set'])
-def set_price(msg):
+def set_value(msg):
     try:
         parts = msg.text.split()
 
-        category = parts[1].lower()
+        if len(parts) != 4:
+            bot.reply_to(msg, "❌ الاستخدام: /set gold scrap 4700")
+            return
+
+        cat = parts[1].lower()
         key = parts[2].lower()
         value = float(parts[3])
 
         data = load()
 
-        if category not in data:
-            bot.reply_to(msg, "❌ category not found")
+        if cat not in data or key not in data[cat]:
+            bot.reply_to(msg, "❌ غير موجود")
             return
 
-        if key not in data[category]:
-            bot.reply_to(msg, "❌ key not found")
-            return
-
-        data[category][key] = value
+        data[cat][key] = value
         save(data)
 
-        bot.reply_to(msg, f"✅ updated {category} → {key} = {value}")
+        bot.reply_to(msg, f"✅ تم التحديث: {cat} → {key} = {value}")
 
     except:
-        bot.reply_to(msg, "❌ usage: /set gold scrap 4700")
+        bot.reply_to(msg, "❌ خطأ في الإدخال")
 
 # =========================
-# fallback
+# fallback آمن
 # =========================
 
-@bot.message_handler(func=lambda m: True)
+@bot.message_handler(func=lambda m: m.content_type == 'text')
 def fallback(msg):
-    bot.reply_to(msg, "استخدم الأزرار أو /market")
+    if not msg.text.startswith('/'):
+        bot.reply_to(msg, "استخدم الأزرار أو /market")
 
 # =========================
-# Run bot safely
+# تشغيل البوت
 # =========================
 
 def run_bot():
@@ -171,15 +148,14 @@ def run_bot():
             bot.remove_webhook()
             bot.infinity_polling(skip_pending=True)
         except Exception as e:
-            print("Bot error:", e)
+            print("BOT ERROR:", e)
 
 # =========================
-# START EVERYTHING
+# تشغيل النظام بالكامل
 # =========================
 
 if __name__ == "__main__":
     start_message()
 
     threading.Thread(target=run_web, daemon=True).start()
-
     run_bot()
