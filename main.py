@@ -1,104 +1,156 @@
 import os
 import json
-import time
-import requests
 import telebot
 
-# ===== إعدادات =====
+# =========================
+# إعدادات
+# =========================
+
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
 bot = telebot.TeleBot(TOKEN)
 
-# ===== العملات والمعادن =====
-ASSETS = {
-    "gold": "XAU",
-    "silver": "XAG",
-    "usd": "USD",
-    "eur": "EUR",
-    "tnd": "TND",
-    "egp": "EGP",
-    "try": "TRY"
+# =========================
+# رموز السوق (Emojis)
+# =========================
+
+ICONS = {
+    "gold": "🪙 الذهب",
+    "silver": "🥈 الفضة",
+    "usd": "💵 الدولار",
+    "eur": "💶 اليورو",
+    "try": "🇹🇷 الليرة التركية",
+    "egp": "🇪🇬 الجنيه المصري",
+    "tnd": "🇹🇳 الدينار التونسي"
 }
 
-# ===== تحميل البيانات =====
-def load_data():
+# =========================
+# تحميل / حفظ
+# =========================
+
+def load_market():
     try:
-        with open("prices.json", "r") as f:
+        with open("market.json", "r") as f:
             return json.load(f)
     except:
-        return {"data": {}}
+        return {}
 
-def save_data(data):
-    with open("prices.json", "w") as f:
+def save_market(data):
+    with open("market.json", "w") as f:
         json.dump(data, f)
 
-# ===== جلب السعر العالمي =====
-def get_price(symbol):
+# =========================
+# تحديث يدوي
+# =========================
+
+@bot.message_handler(commands=['set'])
+def set_price(msg):
     try:
-        if symbol in ["XAU", "XAG"]:
-            url = f"https://api.gold-api.com/price/{symbol}"
-            res = requests.get(url).json()
-            return float(res["price"])
-        else:
-            # API صرف العملات
-            url = f"https://open.er-api.com/v6/latest/USD"
-            res = requests.get(url).json()
-            rate = res["rates"].get(symbol, 0)
-            return float(rate)
+        parts = msg.text.split()
+
+        category = parts[1].lower()   # gold / silver / currency
+        key = parts[2].lower()        # usd / new / scrap
+        value = float(parts[3])
+
+        data = load_market()
+
+        if category not in data:
+            data[category] = {}
+
+        data[category][key] = value
+        save_market(data)
+
+        bot.reply_to(msg, f"✅ تم تحديث {category} - {key} = {value}")
+
     except:
-        return 0
+        bot.reply_to(msg, "❌ الاستخدام:\n/set gold scrap 4700")
 
-# ===== تحليل التغير =====
-def analyze(old, new):
-    if old == 0:
-        return "🆕 أول تسجيل"
+# =========================
+# عرض السوق
+# =========================
 
-    diff = abs(new - old)
-    percent = (diff / old) * 100 if old else 0
+@bot.message_handler(commands=['market'])
+def show_market(msg):
+    data = load_market()
 
-    if percent > 1:
-        return "⚠️ تغير قوي"
-    elif percent > 0.3:
-        return "📊 تغير متوسط"
-    else:
-        return "➖ استقرار"
+    text = "📊 السوق الليبي الحالي:\n\n"
 
-# ===== تشغيل الفحص =====
-def check_all():
-    db = load_data()
-    old_data = db.get("data", {})
+    for category, values in data.items():
+        text += f"{ICONS.get(category, category)}:\n"
 
-    messages = []
+        for k, v in values.items():
+            text += f" - {k}: {v}\n"
 
-    for name, symbol in ASSETS.items():
-        new_price = get_price(symbol)
-        old_price = old_data.get(name, 0)
+        text += "\n"
 
-        status = analyze(old_price, new_price)
+    bot.reply_to(msg, text)
 
-        if old_price == 0:
-            old_data[name] = new_price
-            continue
+# =========================
+# تحليل بسيط للذهب
+# =========================
 
-        if abs(new_price - old_price) > 0:
-            messages.append(f"{name.upper()}:\n{old_price} ➜ {new_price}\n{status}\n")
+def analyze_gold(data):
+    g = data.get("gold", {})
 
-        old_data[name] = new_price
+    new = g.get("new", 0)
+    scrap = g.get("scrap", 0)
+    cast = g.get("cast", 0)
 
-    if messages:
-        bot.send_message(CHAT_ID, "📊 تحديث السوق:\n\n" + "\n".join(messages))
+    alerts = []
 
-    db["data"] = old_data
-    save_data(db)
+    if new and scrap:
+        diff = ((new - scrap) / new) * 100
+        if diff > 10:
+            alerts.append("⚠️ فرق كبير بين الذهب الجديد والكسر")
 
-# ===== تشغيل البوت =====
-bot.send_message(CHAT_ID, "🚀 V2 ليبيا بدأ العمل (ذهب + عملات)")
+    if new and cast:
+        diff = ((new - cast) / new) * 100
+        if diff < 1:
+            alerts.append("📊 المسبوك قريب جدًا من الجديد")
 
-while True:
+    return alerts
+
+# =========================
+# فحص دوري
+# =========================
+
+def check_market():
+    data = load_market()
+
+    alerts = analyze_gold(data)
+
+    if alerts:
+        bot.send_message(CHAT_ID, "📢 تنبيه سوق:\n\n" + "\n".join(alerts))
+
+# =========================
+# تشغيل أولي
+# =========================
+
+def start_message():
     try:
-        check_all()
-        time.sleep(300)
-    except Exception as e:
-        print("Error:", e)
-        time.sleep(60)
+        with open("started.flag", "r"):
+            return
+    except:
+        bot.send_message(CHAT_ID, "🚀 V4 اليدوي الذكي بدأ العمل")
+        open("started.flag", "w").write("ok")
+
+# =========================
+# تشغيل مستمر
+# =========================
+
+import time
+import threading
+
+def loop():
+    while True:
+        try:
+            check_market()
+            time.sleep(300)
+        except:
+            time.sleep(60)
+
+start_message()
+threading.Thread(target=loop).start()
+
+bot.infinity_polling()
