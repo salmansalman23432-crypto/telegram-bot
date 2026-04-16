@@ -66,8 +66,9 @@ user_state = {}
 
 @bot.message_handler(commands=['start'])
 def start(msg):
+    print("📩 Received /start")
     bot.send_message(msg.chat.id, "👋 أهلاً بك", reply_markup=main_menu())
-
+    
 # =========================
 # السوق
 # =========================
@@ -218,8 +219,14 @@ def back(msg):
 # =========================
 
 def run_bot():
+    print("🚀 Bot polling started...")
     bot.remove_webhook()
-    bot.infinity_polling(skip_pending=True)
+
+    bot.infinity_polling(
+        skip_pending=True,
+        timeout=30,
+        long_polling_timeout=30
+    )
 
 if __name__ == "__main__":
     threading.Thread(target=run_web).start()
