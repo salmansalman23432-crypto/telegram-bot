@@ -1,0 +1,19 @@
+{
+  "gold": {
+    "new": 0,
+    "used": 0,
+    "scrap": 0,
+    "cast": 0
+  },
+  "silver": {
+    "new": 0,
+    "used": 0
+  },
+  "currency": {
+    "usd": 0,
+    "eur": 0,
+    "try": 0,
+    "egp": 0,
+    "tnd": 0
+  }
+}
