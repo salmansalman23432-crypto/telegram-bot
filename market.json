@@ -1,19 +1,30 @@
 {
-  "gold": {
-    "new": 0,
-    "used": 0,
-    "scrap": 0,
-    "cast": 0
+  "local": {
+    "currency": {
+      "usd": 0,
+      "eur": 0,
+      "gbp": 0,
+      "tnd": 0,
+      "egp": 0,
+      "try": 0
+    },
+    "gold": {
+      "g18": 0,
+      "g21": 0
+    },
+    "silver": {
+      "used": 0
+    }
   },
-  "silver": {
-    "new": 0,
-    "used": 0
-  },
-  "currency": {
-    "usd": 0,
-    "eur": 0,
-    "try": 0,
-    "egp": 0,
-    "tnd": 0
+  "global": {
+    "currency": {
+      "usd": 0,
+      "eur": 0,
+      "gbp": 0
+    },
+    "metal": {
+      "gold": 0,
+      "silver": 0
+    }
   }
 }
