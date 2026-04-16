@@ -6,7 +6,7 @@ from flask import Flask
 from telebot import types
 
 # =========================
-# إعدادات أساسية
+# إعدادات
 # =========================
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -18,7 +18,7 @@ if not TOKEN:
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 
 # =========================
-# Web Service (Render Fix)
+# Flask (حل Render)
 # =========================
 
 app = Flask(__name__)
@@ -32,7 +32,7 @@ def run_web():
     app.run(host="0.0.0.0", port=port)
 
 # =========================
-# بيانات
+# البيانات
 # =========================
 
 def load():
@@ -40,7 +40,11 @@ def load():
         with open("market.json", "r") as f:
             return json.load(f)
     except:
-        return {}
+        return {
+            "gold": {},
+            "silver": {},
+            "currency": {}
+        }
 
 def save(data):
     with open("market.json", "w") as f:
@@ -57,17 +61,17 @@ def menu():
     return kb
 
 # =========================
-# بدء التشغيل
+# رسالة البداية
 # =========================
 
 def start_message():
     try:
-        bot.send_message(CHAT_ID, "🚀 V6 System Online")
+        bot.send_message(CHAT_ID, "🚀 V6.1 Bot Online")
     except:
         pass
 
 # =========================
-# Start
+# /start
 # =========================
 
 @bot.message_handler(commands=['start'])
@@ -92,8 +96,10 @@ def market(msg):
 
     for cat, values in data.items():
         text += f"{icons.get(cat, cat)}:\n"
+
         for k, v in values.items():
             text += f" - {k}: <b>{v}</b>\n"
+
         text += "\n"
 
     bot.send_message(msg.chat.id, text)
@@ -108,7 +114,7 @@ def set_value(msg):
         parts = msg.text.split()
 
         if len(parts) != 4:
-            bot.reply_to(msg, "❌ الاستخدام: /set gold scrap 4700")
+            bot.reply_to(msg, "❌ /set gold scrap 4700")
             return
 
         cat = parts[1].lower()
@@ -124,38 +130,40 @@ def set_value(msg):
         data[cat][key] = value
         save(data)
 
-        bot.reply_to(msg, f"✅ تم التحديث: {cat} → {key} = {value}")
+        bot.reply_to(msg, f"✅ {cat} → {key} = {value}")
 
-    except:
+    except Exception as e:
+        print("SET ERROR:", e)
         bot.reply_to(msg, "❌ خطأ في الإدخال")
 
 # =========================
-# fallback آمن
+# fallback
 # =========================
 
 @bot.message_handler(func=lambda m: m.content_type == 'text')
 def fallback(msg):
     if not msg.text.startswith('/'):
-        bot.reply_to(msg, "استخدم الأزرار أو /market")
+        bot.reply_to(msg, "استخدم الأزرار")
 
 # =========================
-# تشغيل البوت
+# تشغيل البوت (مصَحح)
 # =========================
 
 def run_bot():
-    while True:
-        try:
-            bot.remove_webhook()
-            bot.infinity_polling(skip_pending=True)
-        except Exception as e:
-            print("BOT ERROR:", e)
+    bot.remove_webhook()
+    bot.infinity_polling(
+        skip_pending=True,
+        timeout=30,
+        long_polling_timeout=30
+    )
 
 # =========================
-# تشغيل النظام بالكامل
+# التشغيل
 # =========================
 
 if __name__ == "__main__":
     start_message()
 
-    threading.Thread(target=run_web, daemon=True).start()
+    threading.Thread(target=run_web).start()
+
     run_bot()
