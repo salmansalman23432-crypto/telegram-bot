@@ -1,23 +1,23 @@
 import os
 import json
+import re
 import threading
-import requests
 import telebot
 from flask import Flask
 from telebot import types
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
-bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
+bot = telebot.TeleBot(TOKEN)
 
 app = Flask(__name__)
 
 # =========================
-# WEB (Render fix)
+# WEB
 # =========================
 
 @app.route('/')
 def home():
-    return "Bot running"
+    return "Running"
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
@@ -28,12 +28,72 @@ def run_web():
 # =========================
 
 def load():
-    with open("market.json") as f:
-        return json.load(f)
+    try:
+        with open("market.json") as f:
+            return json.load(f)
+    except:
+        return {
+            "sources": {
+                "usd": [0,0,0,0],
+                "eur": [0,0,0,0],
+                "gbp": [0,0,0,0],
+                "tnd": [0,0,0,0],
+                "egp": [0,0,0,0],
+                "try": [0,0,0,0]
+            },
+            "metals": {
+                "g18": 0,
+                "g21": 0,
+                "silver": 0
+            }
+        }
 
 def save(data):
-    with open("market.json", "w") as f:
-        json.dump(data, f, indent=2)
+    with open("market.json","w") as f:
+        json.dump(data,f,indent=2)
+
+# =========================
+# تحليل النص
+# =========================
+
+def extract(text):
+    data = {}
+
+    patterns = {
+        "usd": r'الدولار.*?(\d+\.\d+)',
+        "eur": r'اليورو.*?(\d+\.\d+)',
+        "gbp": r'الباوند.*?(\d+\.\d+)',
+        "tnd": r'صك.*?(\d+\.\d+)',
+        "egp": r'جنيه.*?(\d+\.\d+)',
+        "try": r'ليرة.*?(\d+\.\d+)',
+        "g18": r'18.*?(\d+)',
+        "g21": r'21.*?(\d+)',
+        "silver": r'فضة.*?(\d+\.\d+)'
+    }
+
+    for k, p in patterns.items():
+        match = re.findall(p, text)
+        if match:
+            data[k] = float(match[-1])
+
+    return data
+
+# =========================
+# فلترة + متوسط
+# =========================
+
+def clean(vals):
+    vals = [v for v in vals if v > 0]
+    if not vals:
+        return []
+    avg = sum(vals)/len(vals)
+    return [v for v in vals if abs(v-avg) < 0.3]
+
+def avg(vals):
+    vals = clean(vals)
+    if not vals:
+        return 0
+    return round(sum(vals)/len(vals),3)
 
 # =========================
 # MENU
@@ -41,16 +101,12 @@ def save(data):
 
 def menu():
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.row("📥 إدخال نص")
     kb.row("📊 السوق")
-    kb.row("💱 العملات", "🪙 الذهب", "🥈 الفضة")
-    kb.row("🌍 تحديث عالمي", "🧮 تحويل")
+    kb.row("🪙 تحديث المعادن")
     return kb
 
-# =========================
-# STATE
-# =========================
-
-user_state = {}
+state = {}
 
 # =========================
 # START
@@ -58,195 +114,95 @@ user_state = {}
 
 @bot.message_handler(commands=['start'])
 def start(msg):
-    bot.send_message(msg.chat.id, "👋 مرحبًا", reply_markup=menu())
+    bot.send_message(msg.chat.id,"👋 أهلا",reply_markup=menu())
 
 # =========================
-# السوق
+# إدخال النص
+# =========================
+
+@bot.message_handler(func=lambda m: m.text == "📥 إدخال نص")
+def ask_text(msg):
+    state[msg.chat.id] = "waiting_text"
+    bot.send_message(msg.chat.id,"📩 أرسل نص السوق:")
+
+@bot.message_handler(func=lambda m: state.get(m.chat.id) == "waiting_text")
+def process_text(msg):
+    data = load()
+    extracted = extract(msg.text)
+
+    # اختيار مصدر
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.row("1","2","3","4")
+
+    state[msg.chat.id] = ("choose_source", extracted)
+    bot.send_message(msg.chat.id,f"📌 تم استخراج:\n{extracted}\nاختر المصدر:",reply_markup=kb)
+
+@bot.message_handler(func=lambda m: isinstance(state.get(m.chat.id),tuple) and state[m.chat.id][0]=="choose_source")
+def save_source(msg):
+    idx = int(msg.text)-1
+    extracted = state[msg.chat.id][1]
+
+    data = load()
+
+    for k,v in extracted.items():
+        if k in data["sources"]:
+            data["sources"][k][idx] = v
+        else:
+            data["metals"][k] = v
+
+    save(data)
+
+    bot.send_message(msg.chat.id,"✅ تم حفظ المصدر",reply_markup=menu())
+    del state[msg.chat.id]
+
+# =========================
+# عرض السوق
 # =========================
 
 @bot.message_handler(func=lambda m: m.text == "📊 السوق")
 def market(msg):
     data = load()
 
-    text = "📊 <b>السوق</b>\n\n"
+    text = "📊 السوق:\n\n"
 
-    text += "💱 العملات المحلية:\n"
-    for k,v in data["local"]["currency"].items():
+    for k,v in data["sources"].items():
+        text += f"{k}: {avg(v)}\n"
+
+    text += "\n🪙 المعادن:\n"
+    for k,v in data["metals"].items():
         text += f"{k}: {v}\n"
 
-    text += "\n🪙 الذهب:\n"
-    text += f"18: {data['local']['gold']['g18']}\n"
-    text += f"21: {data['local']['gold']['g21']}\n"
-
-    text += "\n🥈 الفضة:\n"
-    text += f"used: {data['local']['silver']['used']}\n"
-
-    text += "\n🌍 العالمي:\n"
-    for k,v in data["global"]["currency"].items():
-        text += f"{k}: {v}\n"
-
-    text += f"\nذهب عالمي: {data['global']['metal']['gold']}"
-    text += f"\nفضة عالمية: {data['global']['metal']['silver']}"
-
-    bot.send_message(msg.chat.id, text)
+    bot.send_message(msg.chat.id,text)
 
 # =========================
-# العملات المحلية
+# المعادن يدوي
 # =========================
 
-@bot.message_handler(func=lambda m: m.text == "💱 العملات")
-def currency_menu(msg):
-    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.row("usd","eur","gbp")
-    kb.row("tnd","egp","try")
-    kb.row("🔙 رجوع")
-    bot.send_message(msg.chat.id, "اختر:", reply_markup=kb)
+@bot.message_handler(func=lambda m: m.text == "🪙 تحديث المعادن")
+def metals(msg):
+    state[msg.chat.id] = "metals"
+    bot.send_message(msg.chat.id,"اكتب:\n18=900\n21=970\nsilver=18.5")
 
-@bot.message_handler(func=lambda m: m.text in ["usd","eur","gbp","tnd","egp","try"])
-def currency_input(msg):
-    user_state[msg.chat.id] = ("currency", msg.text)
-    bot.send_message(msg.chat.id, "أدخل السعر:")
+@bot.message_handler(func=lambda m: state.get(m.chat.id) == "metals")
+def save_metals(msg):
+    data = load()
 
-# =========================
-# الذهب
-# =========================
+    lines = msg.text.split("\n")
 
-@bot.message_handler(func=lambda m: m.text == "🪙 الذهب")
-def gold_menu(msg):
-    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.row("ذهب 18", "ذهب 21")
-    kb.row("🔙 رجوع")
-    bot.send_message(msg.chat.id, "اختر:", reply_markup=kb)
+    for line in lines:
+        if "=" in line:
+            k,v = line.split("=")
+            if "18" in k:
+                data["metals"]["g18"]=float(v)
+            elif "21" in k:
+                data["metals"]["g21"]=float(v)
+            elif "silver" in k:
+                data["metals"]["silver"]=float(v)
 
-@bot.message_handler(func=lambda m: m.text in ["ذهب 18","ذهب 21"])
-def gold_input(msg):
-    key = "g18" if msg.text == "ذهب 18" else "g21"
-    user_state[msg.chat.id] = ("gold", key)
-    bot.send_message(msg.chat.id, "أدخل السعر:")
+    save(data)
 
-# =========================
-# الفضة
-# =========================
-
-@bot.message_handler(func=lambda m: m.text == "🥈 الفضة")
-def silver_menu(msg):
-    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.row("فضة مستعمل")
-    kb.row("🔙 رجوع")
-    bot.send_message(msg.chat.id, "اختر:", reply_markup=kb)
-
-@bot.message_handler(func=lambda m: m.text == "فضة مستعمل")
-def silver_input(msg):
-    user_state[msg.chat.id] = ("silver", "used")
-    bot.send_message(msg.chat.id, "أدخل السعر:")
-
-# =========================
-# حفظ القيم
-# =========================
-
-@bot.message_handler(func=lambda m: m.chat.id in user_state)
-def save_value(msg):
-    try:
-        cat, key = user_state[msg.chat.id]
-        value = float(msg.text)
-
-        data = load()
-
-        if cat == "currency":
-            data["local"]["currency"][key] = value
-        elif cat == "gold":
-            data["local"]["gold"][key] = value
-        elif cat == "silver":
-            data["local"]["silver"][key] = value
-
-        save(data)
-
-        bot.send_message(msg.chat.id, "✅ تم الحفظ", reply_markup=menu())
-        del user_state[msg.chat.id]
-
-    except:
-        bot.send_message(msg.chat.id, "❌ أدخل رقم صحيح")
-
-# =========================
-# API عالمي
-# =========================
-
-@bot.message_handler(func=lambda m: m.text == "🌍 تحديث عالمي")
-def update_global(msg):
-    try:
-        data = load()
-
-        # عملات
-        res = requests.get("https://api.exchangerate-api.com/v4/latest/USD").json()
-
-        data["global"]["currency"]["usd"] = 1
-        data["global"]["currency"]["eur"] = res["rates"]["EUR"]
-        data["global"]["currency"]["gbp"] = res["rates"]["GBP"]
-
-        # ذهب (تقريبي)
-        data["global"]["metal"]["gold"] = 2300
-        data["global"]["metal"]["silver"] = 25
-
-        save(data)
-
-        bot.send_message(msg.chat.id, "🌍 تم تحديث الأسعار العالمية")
-
-    except:
-        bot.send_message(msg.chat.id, "❌ فشل التحديث")
-
-# =========================
-# تحويل
-# =========================
-
-@bot.message_handler(func=lambda m: m.text == "🧮 تحويل")
-def convert_start(msg):
-    user_state[msg.chat.id] = "amount"
-    bot.send_message(msg.chat.id, "أدخل المبلغ:")
-
-@bot.message_handler(func=lambda m: m.chat.id in user_state and user_state[m.chat.id] == "amount")
-def convert_amount(msg):
-    try:
-        amount = float(msg.text)
-        user_state[msg.chat.id] = ("from", amount)
-
-        kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        kb.row("usd","eur","gbp","tnd","egp","try")
-        bot.send_message(msg.chat.id, "من:", reply_markup=kb)
-
-    except:
-        bot.send_message(msg.chat.id, "❌ رقم غير صحيح")
-
-@bot.message_handler(func=lambda m: isinstance(user_state.get(m.chat.id), tuple) and user_state[m.chat.id][0] == "from")
-def convert_from(msg):
-    amount = user_state[msg.chat.id][1]
-    user_state[msg.chat.id] = ("to", amount, msg.text)
-
-    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.row("usd","eur","gbp","tnd","egp","try")
-    bot.send_message(msg.chat.id, "إلى:")
-
-@bot.message_handler(func=lambda m: isinstance(user_state.get(m.chat.id), tuple) and user_state[m.chat.id][0] == "to")
-def convert_to(msg):
-    _, amount, from_c = user_state[msg.chat.id]
-    to_c = msg.text
-
-    data = load()["local"]["currency"]
-
-    try:
-        result = (amount * data[to_c]) / data[from_c]
-        bot.send_message(msg.chat.id, f"💱 {round(result,2)}", reply_markup=menu())
-        del user_state[msg.chat.id]
-
-    except:
-        bot.send_message(msg.chat.id, "❌ تأكد من إدخال الأسعار")
-
-# =========================
-# رجوع
-# =========================
-
-@bot.message_handler(func=lambda m: m.text == "🔙 رجوع")
-def back(msg):
-    bot.send_message(msg.chat.id, "رجوع", reply_markup=menu())
+    bot.send_message(msg.chat.id,"✅ تم تحديث المعادن",reply_markup=menu())
+    del state[msg.chat.id]
 
 # =========================
 # RUN
