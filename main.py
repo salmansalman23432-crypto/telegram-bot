@@ -9,18 +9,18 @@ bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 app = Flask(__name__)
 
 # =========================
-# WEB SERVER (Render fix)
+# WEB (Render fix)
 # =========================
 @app.route("/")
 def home():
-    return "V11 Running"
+    return "V11+ Running"
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
 # =========================
-# DATA HANDLING (STABLE)
+# DATA
 # =========================
 
 def default():
@@ -40,7 +40,8 @@ def default():
         "metals": {
             "g18":0,
             "g21":0,
-            "silver":0
+            "silver_local":0,
+            "silver_global":0
         }
     }
 
@@ -56,7 +57,7 @@ def save(d):
         json.dump(d,f,indent=2)
 
 # =========================
-# CLEAN + AVG + SIGNALS
+# CLEAN + AVG
 # =========================
 
 def clean(vals):
@@ -70,22 +71,22 @@ def avg(vals):
     c = clean(vals)
     return round(sum(c)/len(c),3) if c else 0
 
-def high(vals):
+def hi(vals):
     c = clean(vals)
     return max(c) if c else 0
 
-def low(vals):
+def lo(vals):
     c = clean(vals)
     return min(c) if c else 0
 
 # =========================
-# PARSER (FIXED ALL MARKETS)
+# PARSER (FIXED + CLEAN SPLIT)
 # =========================
 
 def extract(text):
     out = {}
 
-    # USD (cash / checks)
+    # USD
     m = re.findall(r'الكاش\s*:\s*(\d+\.\d+)', text)
     if m: out["usd"] = float(m[-1])
 
@@ -102,7 +103,7 @@ def extract(text):
     m = re.findall(r'الباوند.*?(\d+\.\d+)', text)
     if m: out["gbp"] = float(m[-1])
 
-    # TND (Tunisia FIXED)
+    # TND FIX (correct)
     m = re.findall(r'(\d+)\s*دينار.*?(\d+\.\d*)\s*دينار تونسي', text)
     if m:
         lyd, tnd = m[-1]
@@ -110,17 +111,32 @@ def extract(text):
 
     # EGP
     m = re.findall(r'(\d+)\s*دينار.*?(\d+\.\d*)\s*مصري', text)
-    if m: out["egp"] = float(m[-1][1])
+    if m:
+        out["egp"] = float(m[-1][1])
 
-    # Metals
+    # =========================
+    # METALS FIXED SPLIT
+    # =========================
+
+    # Gold 18
     m = re.findall(r'كسر الذهب عيار 18\s*=\s*(\d+)', text)
-    if m: out["g18"] = float(m[-1])
+    if m:
+        out["g18"] = float(m[-1])
 
+    # Gold 21
     m = re.findall(r'كسر الذهب عيار 21\s*=\s*(\d+)', text)
-    if m: out["g21"] = float(m[-1])
+    if m:
+        out["g21"] = float(m[-1])
 
-    m = re.findall(r'فضة.*?(\d+\.\d+)', text)
-    if m: out["silver"] = float(m[-1])
+    # Silver LOCAL ONLY
+    m = re.findall(r'فضة\s*(نادر|تركية|)?\s*.*?(\d+\.\d+)', text)
+    if m:
+        out["silver_local"] = float(m[-1][1])
+
+    # Silver GLOBAL (optional)
+    m = re.findall(r'أونصة\s*الفضة.*?(\d+\.\d+)', text)
+    if m:
+        out["silver_global"] = float(m[-1])
 
     return out
 
@@ -144,10 +160,10 @@ state = {}
 
 @bot.message_handler(commands=["start"])
 def start(m):
-    bot.send_message(m.chat.id,"🚀 V11 Online",reply_markup=menu())
+    bot.send_message(m.chat.id,"🚀 V11+ Stable System",reply_markup=menu())
 
 # =========================
-# INPUT TEXT
+# INPUT
 # =========================
 
 @bot.message_handler(func=lambda m: m.text=="📥 إدخال نص")
@@ -161,7 +177,7 @@ def process(m):
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
     kb.row("1","2","3","4")
     state[m.chat.id]=("save",ex)
-    bot.send_message(m.chat.id,f"📊 تم استخراج:\n{ex}\nاختر المصدر",reply_markup=kb)
+    bot.send_message(m.chat.id,f"📊 تم الاستخراج:\n{ex}\nاختر المصدر",reply_markup=kb)
 
 @bot.message_handler(func=lambda m: isinstance(state.get(m.chat.id),tuple))
 def save_src(m):
@@ -180,7 +196,7 @@ def save_src(m):
     bot.send_message(m.chat.id,"✅ تم الحفظ",reply_markup=menu())
 
 # =========================
-# MARKET VIEW
+# MARKET
 # =========================
 
 @bot.message_handler(func=lambda m: m.text=="📊 السوق")
@@ -190,16 +206,20 @@ def market(m):
     txt="📊 السوق\n\n"
 
     for k,v in d["sources"].items():
-        txt+=f"{k}: {avg(v)} (↑{high(v)} ↓{low(v)})\n"
+        txt+=f"{k}: {avg(v)} (↑{hi(v)} ↓{lo(v)})\n"
 
-    txt+="\n🪙 المعادن:\n"
-    for k,v in d["metals"].items():
-        txt+=f"{k}: {v}\n"
+    txt+="\n🪙 المعادن (محلي):\n"
+    txt+=f"18: {d['metals']['g18']}\n"
+    txt+=f"21: {d['metals']['g21']}\n"
+    txt+=f"فضة: {d['metals']['silver_local']}\n"
+
+    txt+="\n🌍 الفضة العالمية:\n"
+    txt+=f"{d['metals']['silver_global']}\n"
 
     bot.send_message(m.chat.id,txt)
 
 # =========================
-# MARKET SIGNAL (ARBITRAGE LOGIC)
+# SIGNAL ENGINE
 # =========================
 
 @bot.message_handler(func=lambda m: m.text=="📈 إشارة السوق")
@@ -207,36 +227,23 @@ def signal(m):
     d = load()
 
     usd = avg(d["sources"]["usd"])
-    egp_rate = d["cross"]["lyd_to_egp"]
+    egp = d["cross"]["lyd_to_egp"]
 
-    if usd and egp_rate:
-        usd_egp = usd * egp_rate
+    if usd and egp:
+        val = usd * egp
 
-        if usd_egp > 55:
-            msg="⚠️ السوق مرتفع (بيع أفضل من شراء)"
-        elif usd_egp < 50:
+        if val > 55:
+            msg="⚠️ سوق مرتفع (أفضل بيع)"
+        elif val < 50:
             msg="🔥 فرصة شراء"
         else:
             msg="⚖️ سوق متوازن"
 
-        msg += f"\n💱 USD→EGP: {round(usd_egp,2)}"
+        msg+=f"\n💱 USD→EGP: {round(val,2)}"
     else:
         msg="❌ بيانات غير كافية"
 
     bot.send_message(m.chat.id,msg)
-
-# =========================
-# METALS FIXED
-# =========================
-
-@bot.message_handler(func=lambda m: m.text=="🪙 المعادن")
-def metals(m):
-    d=load()
-    txt=f"""🪙 المعادن:
-18: {d['metals']['g18']}
-21: {d['metals']['g21']}
-فضة: {d['metals']['silver']}"""
-    bot.send_message(m.chat.id,txt)
 
 # =========================
 # RUN
